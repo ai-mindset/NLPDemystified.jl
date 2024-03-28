@@ -1,0 +1,13 @@
+name = "NLPDemystified"
+uuid = "1fe260b0-2ac6-4e30-99af-289575779b23"
+authors = ["Eirini <49712302+inferential@users.noreply.github.com>"]
+version = "0.1.0"
+
+[deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+TextAnalysis = "a2db99b7-8b79-58f8-94bf-bbc811eef33d"
+Tokenize = "0796e94c-ce3b-5d07-9a54-7f471281c624"
