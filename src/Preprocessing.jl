@@ -7,6 +7,7 @@ using Tokenize
 using Glob: glob
 using JSON: parse
 using HTTP: request
+using RegularExpressions
 
 ##
 # Const
@@ -18,10 +19,14 @@ const MISTRAL_INSTRUCT_7B_WORD_CONTEXT = round(Int64, MISTRAL_INSTRUCT_7B_TOKEN_
 # "<s>[INST] Instruction [/INST] Model answer</s>[INST] Follow-up instruction [/INST]"
 const MISTRAL_INSTRUCT_SYSTEM_MESSAGE = """
     <s>[INST]
-    Instruction: You are a world class NLP (Natural Language Processing) expert. Your job is
-    to extract the most important insights per document, summarise the highlights and retrieve
-    any information the user asks for.
-    Be precise. Say "I don't know" whenever you don't know the answer.
+    Instruction: You are a world class NLP (Natural Language Processing) expert.
+    Your job is to:
+    i) extract the most important insights per document,
+    ii) summarise the highlights
+    and
+    iii) retrieve the information the user asks for.
+    Be precise.
+    Say "I don't know" whenever you don't know the answer.
     [/INST]</s>"""
 
 ##
@@ -41,8 +46,8 @@ Approximately count the total number of tokens in a vector of strings.
 - `vector::Vector{String}`: A vector of strings.
 
 # Returns
-- `Int64`: The total number of tokens in the vector of strings
-- `Int64`: The total number of words in the vector of strings
+- `Int64`: The total number of _tokens_ in the vector of strings
+- `Int64`: The total number of _words_ in the vector of strings
 """
 function word_and_token_count(vector::Vector{String})::Tuple{Int64,Int64}
     token_estimate::Float64 = 0
@@ -58,7 +63,7 @@ function word_and_token_count(vector::Vector{String})::Tuple{Int64,Int64}
 end
 
 """
-    token_count(text::String)
+    word_and_token_count(text::String)
 Approximately count the total number of tokens in a string of text.
 1 token = 0.75 words per [OpenAI API documentation](https://platform.openai.com/docs/introduction)
 
@@ -86,9 +91,9 @@ according to [OpenAI API documentation](https://platform.openai.com/docs/introdu
 - `vector::Vector{String}`: A vector of strings
 
 # Returns
-- `Dict{Int64, String}`: Chunks of text divided into
+- `d::Dict{Int64, String}`: Chunks of text divided into
 """
-function segment_input(vector::Vector{String})
+function segment_input(vector::Vector{String})::Dict{Int64,String}
     d = Dict{Int64,String}()
     i = 1
     chunk = ""
@@ -149,19 +154,24 @@ end
 
 """
 # FIXME: WIP, incomplete implementation
-function load_corpora()::Vector{String}::Dict{Int64,String}
+function load_corpora()::Vector{Dict{Int64,String}}
     files::Vector{String} = glob(DATA_DIR * "/*.text")
+    res = Vector{Dict{Int64,String}}(undef, length(files))
+    local res
     for file in files
-        text::Vector{String} = open(file) |> readlines |> lowercase
+        num_str::RegexMatch = match(r"\d{1,2}", file)
+        num::Int64 = Base.parse(Int64, num_str.match)
+        text::Vector{String} = open(file) |> readlines |> x -> map(lowercase, x)
         _, no_words::Int64 = word_and_token_count(text)
-        println("Original transcript contains $no_words words")
-        d::Dict{Int64,String} = segment_input(text)
+        println("Segmenting $num_str transcript ($no_words words)...")
+        res[num] = segment_input(text)
     end
+
+    return res
 
 end
 
 
 # toks = collect(tokenize(t))
-
 
 end
