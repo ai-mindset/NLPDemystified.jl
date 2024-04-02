@@ -3,7 +3,7 @@ include("OllamaAI.jl")
 
 ##
 # Imports
-using Tokenize
+using TextAnalysis: tokenize, Languages, TokenDocument, DocumentMetadata, strip_stopwords
 using Glob: glob
 using JSON: parse
 using HTTP: request
@@ -151,27 +151,107 @@ end
 
 ##
 """
+    load_corpora()::Vector{Dict{Int64,String}}
 
+Load all transcripts. Convert all words to lowercase.
+
+# Arguments
+nothing
+
+# Returns
+- `res::Vector{Dict{Int64,String}}`: A vector of Dict, that contains all the transcripts in
+`$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
 """
-# FIXME: WIP, incomplete implementation
-function load_corpora()::Vector{Dict{Int64,String}}
+function load_corpus()::Vector{Dict{Int64,String}}
     files::Vector{String} = glob(DATA_DIR * "/*.text")
-    res = Vector{Dict{Int64,String}}(undef, length(files))
+    res = Vector{Dict{String,String}}(undef, length(files))
     local res
     for file in files
         num_str::RegexMatch = match(r"\d{1,2}", file)
         num::Int64 = Base.parse(Int64, num_str.match)
         text::Vector{String} = open(file) |> readlines |> x -> map(lowercase, x)
         _, no_words::Int64 = word_and_token_count(text)
-        println("Segmenting $num_str transcript ($no_words words)...")
+        println("Segmenting $num transcript ($no_words words)...")
         res[num] = segment_input(text)
     end
 
     return res
-
 end
 
 
-# toks = collect(tokenize(t))
+##
+"""
+    tokenize_each_doc(docs::Vector{Dict{Int64,String}})::Vector{TokenDocument{String}}
+
+Tokenize every document `Preprocessing.load_corpus()` outputs
+
+# Arguments
+- `docs::Vector{Dict{Int64,String}}`: Documents comprising the corpus as processed by
+`Preprocessing.load_corpus()`
+
+# Returns
+- `t::Vector{TokenDocument{String}}`: Vector containing TokenDocuments, each of which comprises
+all the tokens found in the respective document plus metadata for that document.
+Documents can be traced through indices. I.e. `t[1].tokens` contains all the tokens from `docs[1]`,
+which correspond to all the tokens from the first NLP Demystified lecture 'NLP Demystified 1'
+"""
+function tokenize_each_doc(docs::Vector{Dict{Int64,String}})::Vector{TokenDocument{String}}
+    local t = Vector{TokenDocument{String}}()
+    local dm = DocumentMetadata()
+    for doc in docs
+        if length(doc) > 1
+            error("Preprocessing.tokenise_each_doc(): Implement handling longer docs!")
+        end
+        snippet::String = doc[1][1:30]
+        dm = DocumentMetadata(
+            Languages.English(),
+            "NLP Demystified",
+            "Nate Parker",
+            "N/A",
+            snippet
+        )
+        td = TokenDocument(tokenize(Languages.English(), doc[1]), dm)
+        push!(t, td)
+    end
+
+    return t
+end
+
+##
+function stop_words()
+    strip_stopwords()
+
+end
+
+##
+function stem()
+
+end
+
+##
+function lemmatise()
+
+end
+
+##
+function named_entity_recognition()
+
+end
+
+##
+function parsing()
+
+end
+
+##
+function bag_of_words()
+
+end
+
+##
+function doc_similarity()
+
+end
+
 
 end
