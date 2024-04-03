@@ -3,7 +3,15 @@ include("OllamaAI.jl")
 
 ##
 # Imports
-using TextAnalysis: tokenize, Languages, TokenDocument, DocumentMetadata, strip_stopwords
+using TextAnalysis: Corpus, StringDocument, DocumentMetadata, NGramDocument,
+                    standardize!, tokenize, Languages, remove_corrupt_utf8!,
+                    prepare!, update_lexicon!, lexical_frequency, update_inverse_index!,
+                    inverse_index, remove_case!, stem!,
+                    strip_whitespace, strip_punctuation, strip_articles,
+                    strip_indefinite_articles, strip_definite_articles, strip_prepositions,
+                    strip_pronouns, strip_stopwords, strip_numbers, strip_non_letters,
+                    strip_sparse_terms, strip_frequent_terms, strip_html_tags
+
 using Glob: glob
 using JSON: parse
 using HTTP: request
@@ -11,10 +19,11 @@ using RegularExpressions
 
 ##
 # Const
-const PROJECT_ROOT = splitpath(Base.active_project())[end-1]
+const PROJECT_ROOT = splitpath(Base.active_project())[end - 1]
 const DATA_DIR = "data"
 const MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT = 32768 # https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.2
-const MISTRAL_INSTRUCT_7B_WORD_CONTEXT = round(Int64, MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT * 0.75)
+const MISTRAL_INSTRUCT_7B_WORD_CONTEXT = round(
+    Int64, MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT * 0.75)
 # https://www.promptingguide.ai/models/mistral-7b#chat-template-for-mistral-7b-instruct
 # "<s>[INST] Instruction [/INST] Model answer</s>[INST] Follow-up instruction [/INST]"
 const MISTRAL_INSTRUCT_SYSTEM_MESSAGE = """
@@ -28,16 +37,16 @@ const MISTRAL_INSTRUCT_SYSTEM_MESSAGE = """
     Be precise.
     Say "I don't know" whenever you don't know the answer.
     [/INST]</s>"""
-
-##
-# Text Preprocessing:
-# 1. Tokenize the text: Use the TextAnalysis package to tokenize the text.
-# 2. Remove stopwords: Utilize the TextAnalysis package to remove stopwords.
-# 3. Stemming: Implement stemming using the TextAnalysis package.
+const DM = DocumentMetadata(
+    Languages.English(),
+    "NLP Demystified",
+    "Nate Parker",
+    "N/A"
+)
 
 ##
 """
-    token_count(vector::Vector{String})
+    word_and_token_count(vector::Vector{String})
 
 Approximately count the total number of tokens in a vector of strings.
 1 token = 0.75 words per [OpenAI API documentation](https://platform.openai.com/docs/introduction)
@@ -49,7 +58,7 @@ Approximately count the total number of tokens in a vector of strings.
 - `Int64`: The total number of _tokens_ in the vector of strings
 - `Int64`: The total number of _words_ in the vector of strings
 """
-function word_and_token_count(vector::Vector{String})::Tuple{Int64,Int64}
+function word_and_token_count(vector::Vector{String})::Tuple{Int64, Int64}
     token_estimate::Float64 = 0
     total_words::Int64 = 0
 
@@ -93,11 +102,10 @@ according to [OpenAI API documentation](https://platform.openai.com/docs/introdu
 # Returns
 - `d::Dict{Int64, String}`: Chunks of text divided into
 """
-function segment_input(vector::Vector{String})::Dict{Int64,String}
-    d = Dict{Int64,String}()
+function segment_input(vector::Vector{String})::Dict{Int64, String}
+    d = Dict{Int64, String}()
     i = 1
     chunk = ""
-
     for text in vector
         chunk *= text * " "
         if word_and_token_count(chunk) >= (MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT - 10)
@@ -116,19 +124,19 @@ end
 
 ##
 """
-    summarise_text(chunks::Dict{Int64,String})::Vector{String}
+    summarise_text(chunks::Dict{Int64, String})::Vector{String}
 
-Summarise text using an Ollama LLM
+Summarise text using the Mistral 7b LLM as locally served by Ollama
 
 # Arguments
-- `chunks::Dict{Int64,String})`:
+- `chunks::Dict{Int64, String})`:
 
 # Returns
 - `::Vector{String}`:
 """
-function summarise_text(chunks::Dict{Int64,String})::Vector{String}
-    local url = "http://localhost:11434/api/generate"
-    local summaries = Vector{String}()
+function summarise_text(chunks::Dict{Int64, String})::Vector{String}
+    url = "http://localhost:11434/api/generate"
+    summaries = Vector{String}()
 
     for (_, v) in chunks
         prompt = MISTRAL_INSTRUCT_SYSTEM_MESSAGE
@@ -151,107 +159,103 @@ end
 
 ##
 """
-    load_corpora()::Vector{Dict{Int64,String}}
+    load_and_standardise_transcript_corpus()::Vector{Dict{Int64, String}}
 
-Load all transcripts. Convert all words to lowercase.
+Load all transcripts and [standardise](https://juliatext.github.io/TextAnalysis.jl/stable/corpus/)
+them into a `TextAnalysis.Corpus`
 
 # Arguments
 nothing
 
 # Returns
-- `res::Vector{Dict{Int64,String}}`: A vector of Dict, that contains all the transcripts in
+- `Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
 `$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
 """
-function load_corpus()::Vector{Dict{Int64,String}}
+function load_and_standardise_transcript_corpus()::Corpus{StringDocument{String}}
     files::Vector{String} = glob(DATA_DIR * "/*.text")
-    res = Vector{Dict{String,String}}(undef, length(files))
-    local res
+    vec_docs = Vector{StringDocument{String}}()
+
     for file in files
         num_str::RegexMatch = match(r"\d{1,2}", file)
         num::Int64 = Base.parse(Int64, num_str.match)
-        text::Vector{String} = open(file) |> readlines |> x -> map(lowercase, x)
-        _, no_words::Int64 = word_and_token_count(text)
-        println("Segmenting $num transcript ($no_words words)...")
-        res[num] = segment_input(text)
+        doc::String = open(file) |> readchomp
+        _, no_words::Int64 = word_and_token_count([doc])
+        println("Segmenting $(num_str.match) transcript ($no_words words)...")
+        push!(vec_docs, StringDocument(doc, DM))
     end
 
-    return res
+    return Corpus(vec_docs)
 end
-
 
 ##
 """
-    tokenize_each_doc(docs::Vector{Dict{Int64,String}})::Vector{TokenDocument{String}}
+    preprocess(crps::Corpus{StringDocument{String}};
+        n_gram_docs::Bool=false)::Corpus{StringDocument{String}}
 
-Tokenize every document `Preprocessing.load_corpus()` outputs
+Preprocessing corpus' documents
 
 # Arguments
-- `docs::Vector{Dict{Int64,String}}`: Documents comprising the corpus as processed by
-`Preprocessing.load_corpus()`
+- `crps::Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
+`$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
+
+# Keywords
+- `n_gram_docs::Bool = false`: Flag to standardise corpus as `NGramDocument`s. Default: false
 
 # Returns
-- `t::Vector{TokenDocument{String}}`: Vector containing TokenDocuments, each of which comprises
-all the tokens found in the respective document plus metadata for that document.
-Documents can be traced through indices. I.e. `t[1].tokens` contains all the tokens from `docs[1]`,
-which correspond to all the tokens from the first NLP Demystified lecture 'NLP Demystified 1'
+- `crps::Corpus{StringDocument{String}}`: A transformed corpus of `StringDocument`s,
+with the following transformations applied to every document:
+* Stem document
+* Remove
+    > utf-8 characters
+    > case
+    > punctuation
+    > whitespace
+    > articles (indefinite and definite)
+    > prepositions
+    > pronouns
+    > stopwords
+    > numbers
+    > non letters
+    > sparse terms
+    > frequent terms
+    > HTML tags
+    > update lexicon
+    > update inverse index
+`if` n_gram_docs is true, standardise the corpus into `NGramDocument`s
 """
-function tokenize_each_doc(docs::Vector{Dict{Int64,String}})::Vector{TokenDocument{String}}
-    local t = Vector{TokenDocument{String}}()
-    local dm = DocumentMetadata()
-    for doc in docs
-        if length(doc) > 1
-            error("Preprocessing.tokenise_each_doc(): Implement handling longer docs!")
-        end
-        snippet::String = doc[1][1:30]
-        dm = DocumentMetadata(
-            Languages.English(),
-            "NLP Demystified",
-            "Nate Parker",
-            "N/A",
-            snippet
-        )
-        td = TokenDocument(tokenize(Languages.English(), doc[1]), dm)
-        push!(t, td)
+function preprocess(crps::Corpus{StringDocument{String}};
+        n_gram_docs::Bool = false)::Corpus{StringDocument{String}}
+    remove_corrupt_utf8!(crps)
+    remove_case!(crps)
+    prepare!(crps,
+        strip_punctuation | strip_whitespace | strip_indefinite_articles |
+        strip_definite_articles | strip_prepositions |
+        strip_pronouns | strip_stopwords | strip_numbers | strip_non_letters |
+        strip_sparse_terms | strip_frequent_terms | strip_html_tags)
+    stem!(crps)
+    update_lexicon!(crps)
+    update_inverse_index!(crps)
+    if n_gram_docs
+        standardize!(crps, NGramDocument)
     end
 
-    return t
-end
-
-##
-function stop_words()
-    strip_stopwords()
-
-end
-
-##
-function stem()
-
-end
-
-##
-function lemmatise()
-
+    return crps
 end
 
 ##
 function named_entity_recognition()
-
 end
 
 ##
 function parsing()
-
 end
 
 ##
 function bag_of_words()
-
 end
 
 ##
 function doc_similarity()
-
 end
-
 
 end
