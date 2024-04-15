@@ -13,12 +13,13 @@ using Plots: scatter
 - `crps::Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, as generated in `Preprocessing.preprocess()`
 
 # Returns
-- `terms::Vector{String}`: Corpus terms sorted in descending order
+- `m.terms::Vector{String}`: Corpus terms
+- `terms::Vector{String}`: Corpus terms sorted in descending frequencies
 - `clusters::KmeansResult{Matrix{Float64}, Float64, Int64}}`: Clusters found in the corpus' BM25 scores
 when k = 5
 """
 function term_frequencies(crps::Corpus{StringDocument{String}})::Tuple{
-        Vector{String}, DbscanResult}
+        Vector{String}, Vector{String}, DbscanResult}
     # BM25 takes into account word length per document
     # BM25 = IDF(query) * ( (TF(query, Document) * (κ + 1) / (TF(query, Document) * κ * (1 - β + β * θ))),
     # where θ = abs(Document) / mean(allDocuments), κ = free parameter typically ∈ [1.2, 2], β = free parameters typically 0.75
@@ -35,11 +36,11 @@ function term_frequencies(crps::Corpus{StringDocument{String}})::Tuple{
     # Convert term frequencies to a dense vector for easier manipulation
     term_frequencies_dense::Vector{Float64} = vec(term_frequencies)
     # Get indices that would sort the term frequencies in descending order
-    sorted_indices::Vector{Int64} = sortperm(term_frequencies_dense, rev = true)
+    sorted_terms_desc_freq::Vector{Int64} = sortperm(term_frequencies_dense, rev = true)
 
-    terms::Vector{String} = m.terms[sorted_indices]
+    sorted_terms_desc::Vector{String} = m.terms[sorted_terms_desc_freq]
 
-    return terms, clusters
+    return m.terms, sorted_terms_desc, clusters
 end
 
 end

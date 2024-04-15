@@ -13,6 +13,6 @@ crps::Corpus{StringDocument{String}} = Preprocessing.load_and_standardise_transc
 crps = Preprocessing.preprocess_corpus(crps)
 
 ##
-sorted_crps_terms_desc, clusters = Vectorization.term_frequencies(crps)
+crps_terms, sorted_crps_terms_desc, clusters = Vectorization.term_frequencies(crps)
 
 end # module NLPDemystified
