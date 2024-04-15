@@ -1,13 +1,18 @@
 module NLPDemystified
 include("Preprocessing.jl")
+include("Vectorization.jl")
 
-#
+##
+# Imports
 using TextAnalysis: Corpus, StringDocument
-# See [ElixirConf 2023 - Andrés Alejos - Nx Powered Decision Trees](https://youtu.be/rbmviKT6HkU)
-# Regex + TF - IDF + XGBoost + make graphs?
+using Plots: scatter!
 
+##
 # Load corpus
 crps::Corpus{StringDocument{String}} = Preprocessing.load_and_standardise_transcript_corpus()
-crps = Preprocessing.preprocess(crps, false)
+crps = Preprocessing.preprocess_corpus(crps)
+
+##
+sorted_crps_terms_desc, clusters = Vectorization.term_frequencies(crps)
 
 end # module NLPDemystified

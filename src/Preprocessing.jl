@@ -10,7 +10,8 @@ using TextAnalysis: Corpus, StringDocument, DocumentMetadata, NGramDocument,
                     strip_whitespace, strip_punctuation, strip_articles,
                     strip_indefinite_articles, strip_definite_articles, strip_prepositions,
                     strip_pronouns, strip_stopwords, strip_numbers, strip_non_letters,
-                    strip_sparse_terms, strip_frequent_terms, strip_html_tags
+                    strip_sparse_terms, strip_frequent_terms, strip_html_tags,
+                    DocumentTermMatrix, lexicon, dtv
 
 using Glob: glob
 using JSON: parse
@@ -189,8 +190,7 @@ end
 
 ##
 """
-    preprocess(crps::Corpus{StringDocument{String}};
-        n_gram_docs::Bool=false)::Corpus{StringDocument{String}}
+    preprocess_corpus(crps::Corpus{StringDocument{String}}; n_gram_docs::Bool=false)::Corpus{StringDocument{String}}
 
 Preprocessing corpus' documents
 
@@ -200,6 +200,8 @@ Preprocessing corpus' documents
 
 # Keywords
 - `n_gram_docs::Bool = false`: Flag to standardise corpus as `NGramDocument`s. Default: false
+- `articles::Bool = false`: Flag to remove definite & indefinite articles, prepositions and pronouns
+- `whitespace::Bool = false`: Flag to remove whitespace, stopwords and numbers
 
 # Returns
 - `crps::Corpus{StringDocument{String}}`: A transformed corpus of `StringDocument`s,
@@ -223,39 +225,38 @@ with the following transformations applied to every document:
     > update inverse index
 `if` n_gram_docs is true, standardise the corpus into `NGramDocument`s
 """
-function preprocess(crps::Corpus{StringDocument{String}};
-        n_gram_docs::Bool = false)::Corpus{StringDocument{String}}
+function preprocess_corpus(crps::Corpus{StringDocument{String}};
+        n_gram_docs::Bool = false, articles::Bool = false, whitespace::Bool = false)::Corpus{StringDocument{String}}
     remove_corrupt_utf8!(crps)
     remove_case!(crps)
-    prepare!(crps,
-        strip_punctuation | strip_whitespace | strip_indefinite_articles |
-        strip_definite_articles | strip_prepositions |
-        strip_pronouns | strip_stopwords | strip_numbers | strip_non_letters |
-        strip_sparse_terms | strip_frequent_terms | strip_html_tags)
+    # prepare!(crps,
+    #     strip_punctuation | strip_whitespace | strip_indefinite_articles |
+    #     strip_definite_articles | strip_prepositions |
+    #     strip_pronouns | strip_stopwords | strip_numbers | strip_non_letters |
+    #     strip_sparse_terms | strip_frequent_terms | strip_html_tags)
+
+    # FIXME: Categorisation is a bit arbitrary. Find a better way, avoiding individual strips
+    prepare!(crps, strip_punctuation | strip_non_letters | strip_html_tags)
+    prepare!(crps, strip_sparse_terms | strip_frequent_terms)
+    if articles
+        prepare!(crps,
+            strip_indefinite_articles |
+            strip_definite_articles | strip_prepositions |
+            strip_pronouns)
+    end
+    if whitespace
+        prepare!(crps, strip_whitespace | strip_stopwords | strip_numbers)
+    end
+
     stem!(crps)
     update_lexicon!(crps)
     update_inverse_index!(crps)
+
     if n_gram_docs
         standardize!(crps, NGramDocument)
     end
 
     return crps
-end
-
-##
-function named_entity_recognition()
-end
-
-##
-function parsing()
-end
-
-##
-function bag_of_words()
-end
-
-##
-function doc_similarity()
 end
 
 end
