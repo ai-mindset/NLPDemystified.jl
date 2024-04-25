@@ -4,18 +4,19 @@ include("OllamaAI.jl")
 ##
 # Imports
 using TextAnalysis: Corpus, StringDocument, DocumentMetadata, NGramDocument,
-                    standardize!, tokenize, Languages, remove_corrupt_utf8!,
-                    prepare!, update_lexicon!, lexical_frequency, update_inverse_index!,
-                    inverse_index, remove_case!, stem!,
-                    strip_whitespace, strip_punctuation, strip_articles,
-                    strip_indefinite_articles, strip_definite_articles, strip_prepositions,
-                    strip_pronouns, strip_stopwords, strip_numbers, strip_non_letters,
-                    strip_sparse_terms, strip_frequent_terms, strip_html_tags,
+                    standardize!, tokenize, Languages, update_lexicon!, lexical_frequency,
+                    update_inverse_index!, inverse_index, stem!, remove_case!,
+                    remove_corrupt_utf8!, remove_whitespace!, remove_nonletters!,
+                    remove_punctuation!, remove_html_tags!, remove_numbers!,
+                    remove_sparse_terms!, remove_frequent_terms!, remove_stop_words!,
+                    remove_prepositions!, remove_articles!, remove_indefinite_articles!,
+                    remove_definite_articles!, remove_pronouns!,
                     DocumentTermMatrix, lexicon, dtv
 
 using Glob: glob
 using JSON: parse
 using HTTP: request
+using Random: shuffle
 using RegularExpressions
 
 ##
@@ -49,7 +50,7 @@ const DM = DocumentMetadata(
 """
     word_and_token_count(vector::Vector{String})
 
-Approximately count the total number of tokens in a vector of strings.
+Approximate count of the total number of tokens in a vector of strings.
 1 token = 0.75 words per [OpenAI API documentation](https://platform.openai.com/docs/introduction)
 
 # Arguments
@@ -171,8 +172,10 @@ nothing
 # Returns
 - `Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
 `$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
+- `classes::Vector{String}`: Vector of classes
 """
-function load_and_standardise_transcript_corpus()::Corpus{StringDocument{String}}
+function load_and_standardise_transcript_corpus()::Tuple{
+        Corpus{StringDocument{String}}, Vector{String}}
     files::Vector{String} = glob(DATA_DIR * "/*.text")
     vec_docs = Vector{StringDocument{String}}()
 
@@ -185,7 +188,24 @@ function load_and_standardise_transcript_corpus()::Corpus{StringDocument{String}
         push!(vec_docs, StringDocument(doc, DM))
     end
 
-    return Corpus(vec_docs)
+    # TODO: Populate dynamically, based on filenames
+    classes::Vector{String} = ["Intro",
+        "Tokenization",
+        "Basic preproc",
+        "Advanced preproc",
+        "BOW",
+        "TF-IDF",
+        "Models",
+        "Classification",
+        "Latent Dirichlet",
+        "Neural Nets",
+        "Training",
+        "Embeddings",
+        "RNNs",
+        "Seq2Seq",
+        "Transformers"]
+
+    return Corpus(vec_docs), classes
 end
 
 ##
@@ -195,68 +215,103 @@ end
 Preprocessing corpus' documents
 
 # Arguments
-- `crps::Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
+- `corpus::Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
 `$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
 
 # Keywords
-- `n_gram_docs::Bool = false`: Flag to standardise corpus as `NGramDocument`s. Default: false
+- `freq_terms::Bool = false`: Flag to remove frequent terms in each document
+- `n_gram_docs::Bool = false`: Flag to standardise corpus as `NGramDocument`s
 - `articles::Bool = false`: Flag to remove definite & indefinite articles, prepositions and pronouns
-- `whitespace::Bool = false`: Flag to remove whitespace, stopwords and numbers
 
 # Returns
-- `crps::Corpus{StringDocument{String}}`: A transformed corpus of `StringDocument`s,
-with the following transformations applied to every document:
+- `crps::Corpus`: A `StringDocument`s corpus, with the following transformations applied to every document:
 * Stem document
 * Remove
-    > utf-8 characters
-    > case
     > punctuation
     > whitespace
-    > articles (indefinite and definite)
-    > prepositions
-    > pronouns
-    > stopwords
-    > numbers
     > non letters
-    > sparse terms
-    > frequent terms
     > HTML tags
-    > update lexicon
-    > update inverse index
-`if` n_gram_docs is true, standardise the corpus into `NGramDocument`s
+    > numbers
+if `freq_terms` is true, remove frequent terms from corpus
+if `n_gram_docs` is true, standardise the corpus into `NGramDocument`s
+if `articles` is true, remove definite and indefinite articles, prepositions, pronouns and stopwords
 """
-function preprocess_corpus(crps::Corpus{StringDocument{String}};
-        n_gram_docs::Bool = false, articles::Bool = false, whitespace::Bool = false)::Corpus{StringDocument{String}}
-    remove_corrupt_utf8!(crps)
-    remove_case!(crps)
-    # prepare!(crps,
-    #     strip_punctuation | strip_whitespace | strip_indefinite_articles |
-    #     strip_definite_articles | strip_prepositions |
-    #     strip_pronouns | strip_stopwords | strip_numbers | strip_non_letters |
-    #     strip_sparse_terms | strip_frequent_terms | strip_html_tags)
+function preprocess_corpus(
+        corpus::Corpus; freq_terms::Bool = false, n_gram_docs::Bool = false,
+        articles::Bool = false)::Corpus
+    remove_corrupt_utf8!(corpus)
+    remove_case!(corpus)
+    remove_punctuation!(corpus)
+    remove_whitespace!(corpus)
+    remove_nonletters!(corpus)
+    remove_html_tags!(corpus)
+    remove_numbers!(corpus)
 
-    # FIXME: Categorisation is a bit arbitrary. Find a better way, avoiding individual strips
-    prepare!(crps, strip_punctuation | strip_non_letters | strip_html_tags)
-    prepare!(crps, strip_sparse_terms | strip_frequent_terms)
+    # FIXME: Conditionals are a bit arbitrary. Find a better way
+    if freq_terms
+        remove_sparse_terms!(corpus)
+        remove_frequent_terms!(corpus)
+        remove_stop_words!(corpus)
+    end
+
+    # FIXME: Conditionals are a bit arbitrary. Find a better way
     if articles
-        prepare!(crps,
-            strip_indefinite_articles |
-            strip_definite_articles | strip_prepositions |
-            strip_pronouns)
-    end
-    if whitespace
-        prepare!(crps, strip_whitespace | strip_stopwords | strip_numbers)
+        remove_indefinite_articles!(corpus)
+        remove_definite_articles!(corpus)
+        remove_pronouns!(corpus)
+        remove_prepositions!(corpus)
     end
 
-    stem!(crps)
-    update_lexicon!(crps)
-    update_inverse_index!(crps)
+    stem!(corpus)
+    update_lexicon!(corpus)
+    update_inverse_index!(corpus)
 
     if n_gram_docs
-        standardize!(crps, NGramDocument)
+        standardize!(corpus, NGramDocument)
     end
 
-    return crps
+    return corpus
+end
+
+##
+"""
+    train_test_valid_split(corpus::Corpus)::Tuple{Corpus, Corpus, Corpus}
+
+Split corpus into train, test and validate chunks.
+
+# Arguments
+- `corpus::Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
+`$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
+
+# Keywords
+- `train_size::Float64 = 0.7`: Training set size %
+- `val_size::Float64 = 0.1`: Validation set size %. Test set size will be 1 - (train_size - val_size)
+
+# Returns
+- `train_corpus::Corpus`: Training corpus
+- `val_corpus::Corpus`: Validation corpus
+- `test_corpus::Corpus`: Testing corpus
+"""
+function train_test_valid_split(corpus::Corpus; train_size::Float64 = 0.7,
+        val_size::Float64 = 0.1)::Tuple{
+        Vector{StringDocument{String}}, Vector{StringDocument{String}},
+        Vector{StringDocument{String}}}
+    n_docs::Int64 = length(corpus)
+    test_size::Float64 = 1 - (train_size + val_size)
+
+    train_pivot = Int(floor(train_size * n_docs))
+    val_pivot = Int(floor((train_size + val_size) * n_docs))
+
+    shuffled_idx::Vector{Int64} = shuffle(1:n_docs)
+    train_idx = shuffled_idx[1:train_pivot]
+    val_idx = shuffled_idx[(train_pivot + 1):val_pivot]
+    test_idx = shuffled_idx[(val_pivot + 1):end]
+
+    train_corpus::Vector{StringDocument{String}} = corpus[train_idx]
+    val_corpus::Vector{StringDocument{String}} = corpus[val_idx]
+    test_corpus::Vector{StringDocument{String}} = corpus[test_idx]
+
+    return train_corpus, val_corpus, test_corpus
 end
 
 end
