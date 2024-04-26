@@ -18,6 +18,7 @@ using JSON: parse
 using HTTP: request
 using Random: shuffle
 using RegularExpressions
+using Dates: now, format
 
 ##
 # Const
@@ -39,12 +40,6 @@ const MISTRAL_INSTRUCT_SYSTEM_MESSAGE = """
     Be precise.
     Say "I don't know" whenever you don't know the answer.
     [/INST]</s>"""
-const DM = DocumentMetadata(
-    Languages.English(),
-    "NLP Demystified",
-    "Nate Parker",
-    "N/A"
-)
 
 ##
 """
@@ -172,21 +167,10 @@ nothing
 # Returns
 - `Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
 `$(DATA_DIR)/`, segmented to fit the model's `$(MISTRAL_INSTRUCT_7B_TOKEN_CONTEXT)` token context
-- `classes::Vector{String}`: Vector of classes
 """
-function load_and_standardise_transcript_corpus()::Tuple{
-        Corpus{StringDocument{String}}, Vector{String}}
+function load_and_standardise_transcript_corpus()::Corpus{StringDocument{String}}
     files::Vector{String} = glob(DATA_DIR * "/*.text")
     vec_docs = Vector{StringDocument{String}}()
-
-    for file in files
-        num_str::RegexMatch = match(r"\d{1,2}", file)
-        num::Int64 = Base.parse(Int64, num_str.match)
-        doc::String = open(file) |> readchomp
-        _, no_words::Int64 = word_and_token_count([doc])
-        println("Segmenting $(num_str.match) transcript ($no_words words)...")
-        push!(vec_docs, StringDocument(doc, DM))
-    end
 
     # TODO: Populate dynamically, based on filenames
     classes::Vector{String} = ["Intro",
@@ -205,7 +189,22 @@ function load_and_standardise_transcript_corpus()::Tuple{
         "Seq2Seq",
         "Transformers"]
 
-    return Corpus(vec_docs), classes
+    for file in files
+        num_str::RegexMatch = match(r"\d{1,2}", file)
+        num::Int64 = Base.parse(Int64, num_str.match)
+        doc::String = open(file) |> readchomp
+        _, no_words::Int64 = word_and_token_count([doc])
+        println("Segmenting $(num_str.match) transcript ($no_words words)...")
+        doc_meta = DocumentMetadata(
+            Languages.English(),
+            classes[num],
+            "Nate Parker",
+            format(now(), "yyyy-mm-dd HH:MM:SS")
+        )
+        push!(vec_docs, StringDocument(doc, doc_meta))
+    end
+
+    return Corpus(vec_docs)
 end
 
 ##
@@ -277,7 +276,8 @@ end
 """
     train_test_valid_split(corpus::Corpus)::Tuple{Corpus, Corpus, Corpus}
 
-Split corpus into train, test and validate chunks.
+Split corpus into train, test and validation chunks. We'll be using the validation set
+to check whether our model is overfitting, during training.
 
 # Arguments
 - `corpus::Corpus{StringDocument{String}}`: A corpus of `StringDocument`s, that contains all the transcripts in
@@ -285,7 +285,8 @@ Split corpus into train, test and validate chunks.
 
 # Keywords
 - `train_size::Float64 = 0.7`: Training set size %
-- `val_size::Float64 = 0.1`: Validation set size %. Test set size will be 1 - (train_size - val_size)
+- `val_size::Float64 = 0.1`: Validation set size %.
+Test set size will be 1 - (train_size - val_size)
 
 # Returns
 - `train_corpus::Corpus`: Training corpus

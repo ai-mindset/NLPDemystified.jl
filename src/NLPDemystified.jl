@@ -10,8 +10,8 @@ using Random: seed!
 
 ##
 # Load corpus
-corpus::Corpus, classes::Vector{String} = Preprocessing.load_and_standardise_transcript_corpus()
-corpus = Preprocessing.preprocess_corpus(corpus)
+corpus::Corpus = Preprocessing.load_and_standardise_transcript_corpus()
+corpus = Preprocessing.preprocess_corpus(corpus; articles = true)
 
 ##
 corpus_terms_bm25, sorted_corpus_terms_desc_bm25, clusters = Vectorization.bm25_term_frequencies(corpus)
